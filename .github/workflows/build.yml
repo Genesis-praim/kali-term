@@ -20,20 +20,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Descargar binarios nativos (proot arm64 y utils)
-        run: |
-          mkdir -p app/src/main/jniLibs/arm64-v8a
-          # proot estático arm64 (proot-static de Termux o proot-distro)
-          curl -L -o app/src/main/jniLibs/arm64-v8a/libproot.so \
-            https://github.com/proot-me/proot/releases/latest/download/proot-v5.4.0-aarch64-static || true
-          # sh/curl/tar/xz/sha256sum: se toman de un rootfs busybox arm64 o termux-static.
-          # (rellenar con las URLs de tus binarios estáticos arm64)
+      # proot (libproot.so, arm64) ya va versionado en app/src/main/jniLibs/arm64-v8a.
+      # El resto del bootstrap (descarga/xz/tar) es Kotlin puro: sin binarios extra.
 
       - name: Fijar sha256 del rootfs Kali
         run: |
           SHA=$(curl -sL https://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-arm64.tar.xz.sha256sum | awk '{print $1}')
           echo "Rootfs sha256: $SHA"
-          sed -i "s|ROOTFS_SHA256:-}|ROOTFS_SHA256:-$SHA}|" app/src/main/assets/bootstrap/bootstrap.sh || true
+          F=app/src/main/java/com/genesis/kaliterm/BootstrapManager.kt
+          sed -i "s|const val ROOTFS_SHA256 = \"\"|const val ROOTFS_SHA256 = \"$SHA\"|" "$F" || true
 
       - name: Gradle build
         run: |

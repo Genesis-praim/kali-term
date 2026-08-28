@@ -1,25 +1,30 @@
 package com.genesis.kaliterm
 
 import android.app.Activity
+import android.graphics.Color
 import android.os.Bundle
+import android.view.Gravity
 import android.view.KeyEvent
-import android.view.View
 import android.widget.Button
-import android.widget.HorizontalScrollView
+import android.widget.FrameLayout
+import android.widget.TextView
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 import com.termux.view.TerminalView
 import com.termux.view.TerminalViewClient
 import java.io.File
+import kotlin.concurrent.thread
 
 /**
  * Kali Terminal - terminal Kali puro sobre proot, sin root del dispositivo.
- * Sin Claude Code ni integraciones: solo Kali Linux funcional.
+ * Único binario nativo: proot (libproot.so). El resto (descarga/extracción) va
+ * en Kotlin (BootstrapManager). Sin Claude Code: Kali Linux y nada más.
  */
 class MainActivity : Activity() {
 
     private lateinit var terminal: TerminalView
     private var session: TerminalSession? = null
+    private var overlay: TextView? = null
 
     // Modificadores sticky de la barra flotante (un solo disparo).
     private var stickyShift = false
@@ -27,7 +32,8 @@ class MainActivity : Activity() {
     private lateinit var btnShift: Button
     private lateinit var btnAlt: Button
 
-    private val filesDir get() = applicationContext.filesDir.absolutePath
+    private val files get() = applicationContext.filesDir.absolutePath
+    private val prootPath get() = File(applicationInfo.nativeLibraryDir, "libproot.so").absolutePath
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,67 +44,64 @@ class MainActivity : Activity() {
         terminal.setTerminalViewClient(viewClient)
         terminal.keepScreenOn = true
 
-        installAssets()
         wireExtraKeys()
+        KaliService.start(this) // segundo plano
 
-        // Segundo plano: mantiene viva la sesión con la app minimizada.
-        KaliService.start(this)
-
-        startSession()
+        if (BootstrapManager.isInstalled(this)) {
+            startSession()
+        } else {
+            runFirstInstall()
+        }
     }
 
-    // --- Copia scripts + binario proot desde assets al dir privado y da permisos ---
-    private fun installAssets() {
-        val usrBin = File(filesDir, "usr/bin").apply { mkdirs() }
-        File(filesDir, "home").mkdirs()
-        File(filesDir, "tmp").mkdirs()
-
-        // Scripts de bootstrap
-        for (name in listOf("bootstrap.sh", "launch.sh", "install-tools.sh")) {
-            val out = File(filesDir, "usr/bin/$name")
-            assets.open("bootstrap/$name").use { input ->
-                out.outputStream().use { input.copyTo(it) }
-            }
-            out.setExecutable(true, false)
+    // --- Primer arranque: descarga + extrae (Kotlin), luego entra a Kali ---
+    private fun runFirstInstall() {
+        overlay = TextView(this).apply {
+            setBackgroundColor(Color.parseColor("#F00A0E0A"))
+            setTextColor(Color.parseColor("#FF00FF41"))
+            typeface = android.graphics.Typeface.MONOSPACE
+            textSize = 15f
+            gravity = Gravity.CENTER
+            text = "Preparando Kali Linux…"
         }
-        // El binario 'proot' y 'sh'/'curl'/'tar'/'xz' arm64 se empaquetan en
-        // jniLibs y AndroidManifest.extractNativeLibs=true los deja en nativeLibraryDir.
-        // Symlink a usr/bin para el shebang de los scripts.
-        val nativeDir = applicationInfo.nativeLibraryDir
-        for ((lib, bin) in mapOf(
-            "libproot.so" to "proot",
-            "libsh.so" to "sh",
-            "libcurl.so" to "curl",
-            "libtar.so" to "tar",
-            "libxz.so" to "xz",
-            "libsha256sum.so" to "sha256sum"
-        )) {
-            val src = File(nativeDir, lib)
-            val dst = File(usrBin, bin)
-            if (src.exists() && !dst.exists()) {
-                try { android.system.Os.symlink(src.absolutePath, dst.absolutePath) }
-                catch (e: Exception) { src.copyTo(dst, overwrite = true).setExecutable(true, false) }
+        (findViewById<FrameLayout>(android.R.id.content) ?: (terminal.parent as FrameLayout))
+            .let { (terminal.parent as FrameLayout).addView(overlay) }
+
+        thread(name = "kali-bootstrap") {
+            runCatching {
+                BootstrapManager.install(this) { msg, pct ->
+                    runOnUiThread { overlay?.text = "[*] $msg\n\n$pct%" }
+                }
+            }.onSuccess {
+                runOnUiThread {
+                    (terminal.parent as FrameLayout).removeView(overlay); overlay = null
+                    startSession()
+                }
+            }.onFailure { e ->
+                runOnUiThread { overlay?.text = "[!] Error:\n${e.message}\n\nReabre la app para reintentar." }
             }
         }
     }
 
     private fun startSession() {
-        val shell = File(filesDir, "usr/bin/sh").absolutePath
-        // Primer arranque: bootstrap (descarga/extrae) -> auto-tools -> shell Kali.
-        val entry = "sh usr/bin/bootstrap.sh && " +
-            "usr/bin/launch.sh 'bash /root/host/usr/bin/install-tools.sh; exec bash --login'"
-        val env = arrayOf(
-            "FILES=$filesDir",
-            "HOME=$filesDir/home",
-            "PREFIX=$filesDir/usr",
-            "TERM=xterm-256color",
-            "LANG=C.UTF-8",
-            "PATH=$filesDir/usr/bin:/system/bin"
+        val rootfs = BootstrapManager.rootfsDir(this).absolutePath
+        val tmp = File(files, "tmp").apply { mkdirs() }.absolutePath
+        // Instala herramientas la 1ª vez y abre bash login.
+        val entry = "test -f /root/.tools-installed || bash /root/install-tools.sh; exec bash --login"
+        val args = arrayOf(
+            "--link2symlink", "-0", "-r", rootfs,
+            "-b", "/dev", "-b", "/proc", "-b", "/sys", "-b", "/storage",
+            "-b", "$files:/root/host",
+            "-w", "/root",
+            "/usr/bin/env", "-i",
+            "HOME=/root", "USER=root", "TERM=xterm-256color", "LANG=C.UTF-8",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "/bin/bash", "-c", entry
         )
-        session = TerminalSession(
-            shell, filesDir, arrayOf("-c", entry), env, 2000, sessionClient
-        )
+        val env = arrayOf("PROOT_TMP_DIR=$tmp", "HOME=$files/home", "TERM=xterm-256color")
+        session = TerminalSession(prootPath, files, args, env, 2000, sessionClient)
         terminal.attachSession(session)
+        terminal.requestFocus()
     }
 
     // ---------- Barra flotante de teclas ----------
@@ -114,15 +117,8 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.key_down).setOnClickListener { sendKey(KeyEvent.KEYCODE_DPAD_DOWN) }
         findViewById<Button>(R.id.key_right).setOnClickListener { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT) }
 
-        // Shift / Alt: modificadores sticky (se aplican a la siguiente tecla).
-        btnShift.setOnClickListener {
-            stickyShift = !stickyShift
-            it.isSelected = stickyShift
-        }
-        btnAlt.setOnClickListener {
-            stickyAlt = !stickyAlt
-            it.isSelected = stickyAlt
-        }
+        btnShift.setOnClickListener { stickyShift = !stickyShift; it.isSelected = stickyShift }
+        btnAlt.setOnClickListener { stickyAlt = !stickyAlt; it.isSelected = stickyAlt }
     }
 
     /** Envía una tecla al terminal respetando modificadores sticky, y los limpia. */
@@ -142,9 +138,7 @@ class MainActivity : Activity() {
     }
 
     // ---------- Clients de terminal-view ----------
-    // NOTA: las firmas exactas deben alinearse con la versión de terminal-view
-    // fijada en Gradle. readShiftKey/readAltKey conectan la barra flotante con
-    // el teclado software para que Shift/Alt afecten a la siguiente pulsación.
+    // NOTA: alinear firmas a la versión de terminal-view fijada en Gradle.
     private val viewClient = object : TerminalViewClient {
         override fun onScale(scale: Float) = scale
         override fun onSingleTapUp(e: android.view.MotionEvent) { terminal.requestFocus() }
@@ -160,9 +154,7 @@ class MainActivity : Activity() {
         override fun readAltKey() = stickyAlt
         override fun readShiftKey() = stickyShift
         override fun readFnKey() = false
-        override fun onCodePoint(cp: Int, ctrl: Boolean, s: TerminalSession?): Boolean {
-            clearStickies(); return false
-        }
+        override fun onCodePoint(cp: Int, ctrl: Boolean, s: TerminalSession?): Boolean { clearStickies(); return false }
         override fun onEmulatorSet() {}
         override fun logError(tag: String?, msg: String?) {}
         override fun logWarn(tag: String?, msg: String?) {}

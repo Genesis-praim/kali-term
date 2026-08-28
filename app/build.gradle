@@ -38,6 +38,10 @@ android {
 
 dependencies {
     implementation 'androidx.core:core-ktx:1.13.1'
+    // Bootstrap en Kotlin puro: descompresión xz + desempaquetado tar
+    implementation 'org.tukaani:xz:1.9'
+    implementation 'org.apache.commons:commons-compress:1.26.2'
+    // Render del terminal (Termux, Apache-2.0)
     implementation project(':terminal-view')
     implementation project(':terminal-emulator')
     implementation project(':termux-shared')
