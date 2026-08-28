@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_terminal"
+    android:fitsSystemWindows="true">
+
+    <!-- Terminal (Termux terminal-view). Deja hueco abajo para la barra flotante. -->
+    <com.termux.view.TerminalView
+        android:id="@+id/terminal"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginBottom="48dp"
+        android:background="@color/bg_terminal" />
+
+    <!-- Barra FLOTANTE de teclas extra. Solo: Esc Tab Shift Alt End y flechas. -->
+    <HorizontalScrollView
+        android:id="@+id/extra_keys_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:layout_gravity="bottom"
+        android:background="#CC0A0E0A"
+        android:scrollbars="none"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <Button android:id="@+id/key_esc"   style="@style/ExtraKey" android:text="ESC" android:minWidth="0dp" />
+            <Button android:id="@+id/key_tab"   style="@style/ExtraKey" android:text="TAB" android:minWidth="0dp" />
+            <Button android:id="@+id/key_shift" style="@style/ExtraKey" android:text="SHFT" android:minWidth="0dp" />
+            <Button android:id="@+id/key_alt"   style="@style/ExtraKey" android:text="ALT" android:minWidth="0dp" />
+            <Button android:id="@+id/key_end"   style="@style/ExtraKey" android:text="END" android:minWidth="0dp" />
+            <Button android:id="@+id/key_left"  style="@style/ExtraKey" android:text="◄" android:minWidth="0dp" />
+            <Button android:id="@+id/key_up"    style="@style/ExtraKey" android:text="▲" android:minWidth="0dp" />
+            <Button android:id="@+id/key_down"  style="@style/ExtraKey" android:text="▼" android:minWidth="0dp" />
+            <Button android:id="@+id/key_right" style="@style/ExtraKey" android:text="►" android:minWidth="0dp" />
+        </LinearLayout>
+    </HorizontalScrollView>
+</FrameLayout>

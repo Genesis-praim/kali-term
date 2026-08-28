@@ -1,0 +1,21 @@
+// terminal-view / terminal-emulator / termux-shared vienen como submódulo git
+// en libs/termux-app (git submodule add https://github.com/termux/termux-app libs/termux-app)
+pluginManagement {
+    repositories { google(); mavenCentral(); gradlePluginPortal() }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google(); mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+
+rootProject.name = "kali-term"
+include(":app")
+
+// Módulos de Termux (Apache-2.0) para el render del terminal
+include(":terminal-view", ":terminal-emulator", ":termux-shared")
+project(":terminal-view").projectDir = file("libs/termux-app/terminal-view")
+project(":terminal-emulator").projectDir = file("libs/termux-app/terminal-emulator")
+project(":termux-shared").projectDir = file("libs/termux-app/termux-shared")
